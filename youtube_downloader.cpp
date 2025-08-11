@@ -89,9 +89,9 @@ private:
         
         // Windows-compatible command with proper escaping
         #ifdef _WIN32
-            std::string command = "yt-dlp -f \"bestvideo*+bestaudio\" -S \"vcodec:vp9,res,br\" --print urls \"" + youtube_url + "\"";
+            std::string command = "ytdlp -f \"bestvideo*+bestaudio\" -S \"vcodec:vp9,res,br\" --print urls \"" + youtube_url + "\"";
         #else
-            std::string command = "yt-dlp -f \"bestvideo*+bestaudio\" -S \"vcodec:vp9,res,br\" --print urls \"" + youtube_url + "\"";
+            std::string command = "ytdlp -f \"bestvideo*+bestaudio\" -S \"vcodec:vp9,res,br\" --print urls \"" + youtube_url + "\"";
         #endif
         
         std::cout << "Getting video URLs for: " << video_id << std::endl;
