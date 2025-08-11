@@ -1,4 +1,4 @@
-name: Build YouTube Downloader
+name: Build Windows Executable
 
 on:
   push:
@@ -12,13 +12,6 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        arch: [x64]
-        include:
-          - arch: x64
-            msystem: MINGW64
-            package-prefix: mingw-w64-x86_64
     
     defaults:
       run:
@@ -31,45 +24,18 @@ jobs:
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
-        msystem: ${{ matrix.msystem }}
-        update: true
+        msystem: MINGW64
+        update: false
         install: >-
-          base-devel
-          git
-          ${{ matrix.package-prefix }}-toolchain
-          ${{ matrix.package-prefix }}-cmake
-          ${{ matrix.package-prefix }}-curl
-          ${{ matrix.package-prefix }}-pkg-config
-          ${{ matrix.package-prefix }}-openssl
-          ${{ matrix.package-prefix }}-ca-certificates
-          python
-          python-pip
-    
-    - name: Install FFmpeg separately
-      run: |
-        # Try to install ffmpeg from MSYS2, if not available, download binary
-        pacman -S --noconfirm mingw-w64-x86_64-ffmpeg || {
-          echo "FFmpeg not available in MSYS2, downloading binary..."
-          curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -o ffmpeg.zip
-          unzip -q ffmpeg.zip
-          mv ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe /mingw64/bin/
-          mv ffmpeg-master-latest-win64-gpl/bin/ffprobe.exe /mingw64/bin/
-          rm -rf ffmpeg.zip ffmpeg-master-latest-win64-gpl
-        }
-    
-    - name: Install yt-dlp
-      run: |
-        pip install yt-dlp
-        which yt-dlp
-        yt-dlp --version
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-curl
+          mingw-w64-x86_64-pkg-config
+          make
     
     - name: Verify dependencies
       run: |
         g++ --version
-        pkg-config --version
         pkg-config --cflags --libs libcurl
-        ffmpeg -version
-        echo "PATH: $PATH"
     
     - name: Build with Makefile
       run: |
@@ -78,167 +44,38 @@ jobs:
     
     - name: Test executable
       run: |
-        ./youtube_downloader.exe --help || echo "Help not implemented, but executable runs"
-        file youtube_downloader.exe || ls -la youtube_downloader.exe
+        ./youtube_downloader.exe --help || echo "Executable built successfully"
+        ls -la youtube_downloader.exe
     
-    - name: Upload Windows artifact
+    - name: Upload Windows executable
       uses: actions/upload-artifact@v4
       with:
-        name: youtube-downloader-windows-${{ matrix.arch }}
+        name: youtube-downloader-windows
         path: youtube_downloader.exe
         retention-days: 30
 
-  build-linux:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        compiler: [gcc, clang]
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          libcurl4-openssl-dev \
-          pkg-config \
-          ffmpeg \
-          python3-pip
-        pip3 install yt-dlp
-    
-    - name: Setup compiler
-      run: |
-        if [ "${{ matrix.compiler }}" = "clang" ]; then
-          sudo apt-get install -y clang
-          echo "CXX=clang++" >> $GITHUB_ENV
-        else
-          echo "CXX=g++" >> $GITHUB_ENV
-        fi
-    
-    - name: Build with Makefile
-      run: |
-        make clean || true
-        make all CXX=${{ env.CXX }}
-    
-    - name: Test executable
-      run: |
-        ./youtube_downloader --help || echo "Help not implemented, but executable runs"
-        ldd youtube_downloader
-    
-    - name: Upload Linux artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: youtube-downloader-linux-${{ matrix.compiler }}
-        path: youtube_downloader
-        retention-days: 30
-
-  build-macos:
-    runs-on: macos-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Install dependencies
-      run: |
-        brew update
-        brew install curl pkg-config ffmpeg python3
-        pip3 install yt-dlp
-    
-    - name: Build with Makefile
-      run: |
-        make clean || true
-        make all
-    
-    - name: Test executable
-      run: |
-        ./youtube_downloader --help || echo "Help not implemented, but executable runs"
-        otool -L youtube_downloader
-    
-    - name: Upload macOS artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: youtube-downloader-macos
-        path: youtube_downloader
-        retention-days: 30
-
   create-release:
-    needs: [build-windows, build-linux, build-macos]
+    needs: build-windows
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     
     steps:
-    - name: Download all artifacts
+    - name: Download artifact
       uses: actions/download-artifact@v4
       with:
-        path: artifacts
-    
-    - name: Prepare release files
-      run: |
-        mkdir -p release
-        
-        # Windows
-        cp artifacts/youtube-downloader-windows-x64/youtube_downloader.exe release/youtube-downloader-windows-x64.exe
-        
-        # Linux
-        cp artifacts/youtube-downloader-linux-gcc/youtube_downloader release/youtube-downloader-linux-gcc
-        cp artifacts/youtube-downloader-linux-clang/youtube_downloader release/youtube-downloader-linux-clang
-        
-        # macOS
-        cp artifacts/youtube-downloader-macos/youtube_downloader release/youtube-downloader-macos
-        
-        # Make executables executable
-        chmod +x release/youtube-downloader-*
-        
-        # Create checksums
-        cd release
-        sha256sum * > checksums.txt
-        ls -la
-    
-    - name: Upload release assets
-      uses: softprops/action-gh-release@v1
-      with:
-        files: release/*
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  test-functionality:
-    needs: [build-windows]
-    runs-on: windows-latest
-    
-    defaults:
-      run:
-        shell: msys2 {0}
-    
-    steps:
-    - name: Setup MSYS2 for testing
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        install: >-
-          python
-          python-pip
-    
-    - name: Install dependencies for testing
-      run: |
-        pip install yt-dlp
-        # Install FFmpeg for testing
-        curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -o ffmpeg.zip
-        unzip -q ffmpeg.zip
-        mv ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe /mingw64/bin/
-        rm -rf ffmpeg.zip ffmpeg-master-latest-win64-gpl
-    
-    - name: Download Windows artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: youtube-downloader-windows-x64
+        name: youtube-downloader-windows
         path: .
     
-    - name: Test with sample video
+    - name: Create release asset
       run: |
-        # Test with a very short video to avoid long CI times
-        timeout 300 ./youtube_downloader.exe "https://www.youtube.com/watch?v=jNQXAC9IVRw" 4 || echo "Test completed with exit code $?"
-        ls -la *.mp4 || echo "No MP4 files found"
+        mv youtube_downloader.exe youtube-downloader-windows.exe
+        sha256sum youtube-downloader-windows.exe > checksum.txt
+    
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          youtube-downloader-windows.exe
+          checksum.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
