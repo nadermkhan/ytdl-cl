@@ -41,9 +41,21 @@ jobs:
           ${{ matrix.package-prefix }}-curl
           ${{ matrix.package-prefix }}-pkg-config
           ${{ matrix.package-prefix }}-openssl
+          ${{ matrix.package-prefix }}-ca-certificates
           python
           python-pip
-          ffmpeg
+    
+    - name: Install FFmpeg separately
+      run: |
+        # Try to install ffmpeg from MSYS2, if not available, download binary
+        pacman -S --noconfirm mingw-w64-x86_64-ffmpeg || {
+          echo "FFmpeg not available in MSYS2, downloading binary..."
+          curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -o ffmpeg.zip
+          unzip -q ffmpeg.zip
+          mv ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe /mingw64/bin/
+          mv ffmpeg-master-latest-win64-gpl/bin/ffprobe.exe /mingw64/bin/
+          rm -rf ffmpeg.zip ffmpeg-master-latest-win64-gpl
+        }
     
     - name: Install yt-dlp
       run: |
@@ -57,6 +69,7 @@ jobs:
         pkg-config --version
         pkg-config --cflags --libs libcurl
         ffmpeg -version
+        echo "PATH: $PATH"
     
     - name: Build with Makefile
       run: |
@@ -66,7 +79,7 @@ jobs:
     - name: Test executable
       run: |
         ./youtube_downloader.exe --help || echo "Help not implemented, but executable runs"
-        file youtube_downloader.exe
+        file youtube_downloader.exe || ls -la youtube_downloader.exe
     
     - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
@@ -201,17 +214,22 @@ jobs:
         shell: msys2 {0}
     
     steps:
-    - name: Setup MSYS2
+    - name: Setup MSYS2 for testing
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
         install: >-
           python
           python-pip
-          ffmpeg
     
-    - name: Install yt-dlp
-      run: pip install yt-dlp
+    - name: Install dependencies for testing
+      run: |
+        pip install yt-dlp
+        # Install FFmpeg for testing
+        curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -o ffmpeg.zip
+        unzip -q ffmpeg.zip
+        mv ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe /mingw64/bin/
+        rm -rf ffmpeg.zip ffmpeg-master-latest-win64-gpl
     
     - name: Download Windows artifact
       uses: actions/download-artifact@v4
@@ -219,8 +237,8 @@ jobs:
         name: youtube-downloader-windows-x64
         path: .
     
-    - name: Test with sample video (short test video)
+    - name: Test with sample video
       run: |
         # Test with a very short video to avoid long CI times
-        ./youtube_downloader.exe "https://www.youtube.com/watch?v=jNQXAC9IVRw" 4 || echo "Test completed with exit code $?"
+        timeout 300 ./youtube_downloader.exe "https://www.youtube.com/watch?v=jNQXAC9IVRw" 4 || echo "Test completed with exit code $?"
         ls -la *.mp4 || echo "No MP4 files found"
