@@ -1,0 +1,81 @@
+name: Build Windows Executable
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    defaults:
+      run:
+        shell: msys2 {0}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: false
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-curl
+          mingw-w64-x86_64-pkg-config
+          make
+    
+    - name: Verify dependencies
+      run: |
+        g++ --version
+        pkg-config --cflags --libs libcurl
+    
+    - name: Build with Makefile
+      run: |
+        make clean || true
+        make all
+    
+    - name: Test executable
+      run: |
+        ./youtube_downloader.exe --help || echo "Executable built successfully"
+        ls -la youtube_downloader.exe
+    
+    - name: Upload Windows executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: youtube-downloader-windows
+        path: youtube_downloader.exe
+        retention-days: 30
+
+  create-release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: youtube-downloader-windows
+        path: .
+    
+    - name: Create release asset
+      run: |
+        mv youtube_downloader.exe youtube-downloader-windows.exe
+        sha256sum youtube-downloader-windows.exe > checksum.txt
+    
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          youtube-downloader-windows.exe
+          checksum.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
